@@ -494,6 +494,96 @@ std::set<std::vector<element::Type>> jit_floor_emitter::get_supported_precisions
     const std::shared_ptr<ov::Node>& node) {
     return {{element::f32}};
 }
+/// FLOOR MOD ///
+jit_floor_mod_emitter::jit_floor_mod_emitter(jit_generator* host, cpu_isa_t host_isa, const element::Type exec_prc)
+    : jit_emitter(host, host_isa, exec_prc) {
+    prepare_table();
+}
+
+jit_floor_mod_emitter::jit_floor_mod_emitter(jit_generator* host, cpu_isa_t host_isa, const std::shared_ptr<ov::Node>& node)
+    : jit_emitter(host, host_isa, get_arithmetic_binary_exec_precision(node)) {
+    prepare_table();
+}
+
+size_t jit_floor_mod_emitter::get_inputs_num() const {
+    return 2;
+}
+
+size_t jit_floor_mod_emitter::aux_vecs_count() const {
+    return 2;  
+}
+
+size_t jit_floor_mod_emitter::aux_fp_gprs_count() const {
+    return 1;  
+}
+
+void jit_floor_mod_emitter::emit_impl(const std::vector<size_t>& in_vec_idxs,
+                                     const std::vector<size_t>& out_vec_idxs) const {
+    if (host_isa_ == ov::intel_cpu::riscv64::cpu_isa_t::gv) {
+        emit_isa<ov::intel_cpu::riscv64::cpu_isa_t::gv>(in_vec_idxs, out_vec_idxs);
+    } else {
+        OPENVINO_THROW("Can't create jit eltwise kernel for FLOOR_MOD");
+    }
+}
+
+template <cpu_isa_t isa>
+void jit_floor_mod_emitter::emit_isa(const std::vector<size_t>& in_vec_idxs,
+                                    const std::vector<size_t>& out_vec_idxs) const {
+    const VReg src0 = VReg(in_vec_idxs[0]);
+    const VReg src1 = VReg(in_vec_idxs[1]);
+    const VReg dst = VReg(out_vec_idxs[0]);
+    const VReg tmp1 = aux_vec(0);
+    const VReg tmp2 = aux_vec(1);
+
+    h->vfdiv_vv(tmp1, src0, src1);          
+    h->vfcvt_f_x_v(tmp2, tmp1);            
+    h->vfmul_vv(tmp1, tmp2, src1);          
+    h->vfsub_vv(dst, src0, tmp1);           
+}
+
+void jit_floor_mod_emitter::register_table_entries() {
+}
+
+std::set<std::vector<element::Type>> jit_floor_mod_emitter::get_supported_precisions(
+    const std::shared_ptr<ov::Node>& node) {
+    return {{element::f32, element::f32}};  
+}
+
+// LESS ///
+jit_less_emitter::jit_less_emitter(jit_generator* host, cpu_isa_t host_isa, const element::Type exec_prc)
+    : jit_emitter(host, host_isa, exec_prc) {}
+
+jit_less_emitter::jit_less_emitter(jit_generator* host, cpu_isa_t host_isa, const std::shared_ptr<ov::Node>& node)
+    : jit_emitter(host, host_isa, node->get_input_element_type(0)) {}
+
+void jit_less_emitter::emit_impl(const std::vector<size_t>& in_vec_idxs,
+                                const std::vector<size_t>& out_vec_idxs) const {
+    if (host_isa_ == ov::intel_cpu::riscv64::cpu_isa_t::gv) {
+        emit_isa<ov::intel_cpu::riscv64::cpu_isa_t::gv>(in_vec_idxs, out_vec_idxs);
+    } else {
+        OPENVINO_THROW("Unsupported RISC-V ISA");
+    }
+}
+
+template <cpu_isa_t isa>
+void jit_less_emitter::emit_isa(const std::vector<size_t>& in_vec_idxs,
+                               const std::vector<size_t>& out_vec_idxs) const {
+    using namespace Xbyak_riscv64;
+
+    const auto& src0 = VReg(in_vec_idxs[0]);
+    const auto& src1 = VReg(in_vec_idxs[1]);
+    const auto& dst = VReg(out_vec_idxs[0]);
+    const auto& mask = aux_vec(0);
+
+    h->vmflt_vv(mask, src0, src1);         
+    h->vfmv_v_f(dst, 0);                    
+    h->vfmerge_vfm(dst, h->f32_one, mask);   
+}
+
+std::set<std::vector<element::Type>> jit_less_emitter::get_supported_precisions(
+    const std::shared_ptr<ov::Node>& node) {
+    return {{element::f32, element::f32}}; 
+}
 /// MAXIMUM ///
 jit_maximum_emitter::jit_maximum_emitter(jit_generator* host, cpu_isa_t host_isa, const element::Type exec_prc)
     : jit_emitter(host, host_isa, exec_prc) {}
