@@ -465,8 +465,8 @@ struct EltwiseKey {
 
         if (result) {
             if (implType == EltwiseImplType::optimizedShapeAgnostic) {
-                bool broadcast;
-                bool rhsBroadcast;
+                bool broadcast = false;
+                bool rhsBroadcast = false;
                 for (size_t i = 0; i < inpDims.size(); ++i) {
                     broadcast = (inpDims[i].back() == 1);
                     rhsBroadcast = (rhs.inpDims[i].back() == 1);
@@ -883,14 +883,16 @@ public:
         if (!one_of(algorithm,
                     Algorithm::EltwiseAbs,
                     Algorithm::EltwiseAdd,
-                    Algorithm::EltwiseLogicalAnd,
                     Algorithm::EltwiseClamp,
                     Algorithm::EltwiseDivide,
                     Algorithm::EltwiseExp,
                     Algorithm::EltwiseFloor,
                     Algorithm::EltwiseFloorMod,
-                    Algorithm::EltwiseLess,
+                    Algorithm::EltwiseGreaterEqual,
+                    Algorithm::eltwiseLess,
+                    Algorithm::EltwiseLogicalAnd,
                     Algorithm::EltwiseLogicalOr,
+                    Algorithm::EltwiseLogicalXor,
                     Algorithm::EltwiseMaximum,
                     Algorithm::EltwiseMinimum,
                     Algorithm::EltwiseMod,
@@ -1131,7 +1133,7 @@ public:
 
             for (size_t iwork = start; iwork < end; ++iwork) {
                 std::vector<T> src_f(this->_inputNum);
-                T* dst_ptr_f;
+                T* dst_ptr_f = nullptr;
                 this->init_ptr(args_ptrs, dims_out, counters, iwork, src_f, dst_ptr_f);
 
                 switch (this->_opData.algo) {
@@ -1286,7 +1288,7 @@ public:
 
             for (size_t iwork = start; iwork < end; ++iwork) {
                 std::vector<T> src_f(this->_inputNum);
-                T* dst_ptr_f;
+                T* dst_ptr_f = nullptr;
                 this->init_ptr(args_ptrs, dims_out, counters, iwork, src_f, dst_ptr_f);
 
                 switch (this->_opData.algo) {
@@ -1596,9 +1598,13 @@ void Eltwise::initSupportedPrimitiveDescriptors() {
         outputPrecision = fusedWith[fusedWith.size() - 1]->getOriginalOutputPrecisionAtPort(0);
     }
 
-    implType = canUseOptimizedShapeAgnosticImpl ? EltwiseImplType::optimizedShapeAgnostic
-               : canUseOptimizedImpl            ? EltwiseImplType::optimized
-                                                : EltwiseImplType::reference;
+    if (canUseOptimizedShapeAgnosticImpl) {
+        implType = EltwiseImplType::optimizedShapeAgnostic;
+    } else if (canUseOptimizedImpl) {
+        implType = EltwiseImplType::optimized;
+    } else {
+        implType = EltwiseImplType::reference;
+    }
 
     const auto useJitExecutor = one_of(implType, EltwiseImplType::optimizedShapeAgnostic, EltwiseImplType::optimized);
 
