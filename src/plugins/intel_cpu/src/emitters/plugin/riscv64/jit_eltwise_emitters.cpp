@@ -510,7 +510,7 @@ size_t jit_floor_mod_emitter::get_inputs_num() const {
 }
 
 size_t jit_floor_mod_emitter::aux_vecs_count() const {
-    return 1;  
+    return 2;  
 }
 
 size_t jit_floor_mod_emitter::aux_fp_gprs_count() const {
