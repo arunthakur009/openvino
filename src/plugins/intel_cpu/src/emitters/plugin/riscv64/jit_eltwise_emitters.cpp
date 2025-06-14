@@ -1494,7 +1494,6 @@ void jit_sigmoid_emitter::emit_isa(const std::vector<size_t>& in_vec_idxs,
     // dst = exp(x) / (exp(x) + 1) = dst / aux
     h->vfdiv_vv(dst, dst, aux);
 
-   
     // Now we have to apply the "symmetry" based on original sign
     // aux = dst - 1 = 1 - ( 1 / (exp(x) + 1))
     h->vfrsub_vf(aux, dst, one);
