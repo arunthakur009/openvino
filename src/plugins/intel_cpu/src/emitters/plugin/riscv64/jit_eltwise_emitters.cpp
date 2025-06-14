@@ -494,6 +494,75 @@ std::set<std::vector<element::Type>> jit_floor_emitter::get_supported_precisions
     const std::shared_ptr<ov::Node>& node) {
     return {{element::f32}};
 }
+/// FLOOR MOD ///
+jit_floor_mod_emitter::jit_floor_mod_emitter(jit_generator* host, cpu_isa_t host_isa, const element::Type exec_prc)
+    : jit_emitter(host, host_isa, exec_prc) {
+    prepare_table();
+}
+
+jit_floor_mod_emitter::jit_floor_mod_emitter(jit_generator* host, cpu_isa_t host_isa, const std::shared_ptr<ov::Node>& node)
+    : jit_emitter(host, host_isa, get_arithmetic_binary_exec_precision(node)) {
+    prepare_table();
+}
+
+size_t jit_floor_mod_emitter::get_inputs_num() const {
+    return 2;
+}
+
+size_t jit_floor_mod_emitter::aux_vecs_count() const {
+    return 1;  
+}
+
+size_t jit_floor_mod_emitter::aux_fp_gprs_count() const {
+    return 2;  
+}
+
+void jit_floor_mod_emitter::emit_impl(const std::vector<size_t>& in_vec_idxs,
+                                     const std::vector<size_t>& out_vec_idxs) const {
+    if (host_isa_ == ov::intel_cpu::riscv64::cpu_isa_t::gv) {
+        emit_isa<ov::intel_cpu::riscv64::cpu_isa_t::gv>(in_vec_idxs, out_vec_idxs);
+    } else {
+        OPENVINO_THROW("Can't create jit eltwise kernel for FLOOR_MOD");
+    }
+}
+template <cpu_isa_t isa>
+void jit_floor_mod_emitter::emit_isa(const std::vector<size_t>& in_vec_idxs,
+                                    const std::vector<size_t>& out_vec_idxs) const {
+    OPENVINO_ASSERT(exec_prc_ == element::f32, "JIT Floor Mod emitter supports only f32 precision");
+
+    const VReg src0 = VReg(in_vec_idxs[0]);   
+    const VReg src1 = VReg(in_vec_idxs[1]);   
+    const VReg dst = VReg(out_vec_idxs[0]);  
+    const VReg tmp1 = VReg(aux_vec_idxs[0]);
+    const VReg tmp2 = VReg(aux_vec_idxs[1]);
+    FReg fzero = FReg(aux_fp_gpr_idxs[0]);    
+    FReg fone = FReg(aux_fp_gpr_idxs[1]);    
+
+
+    h->fmv_w_x(fzero, x0);
+    load_table_val("one", fone);
+
+    h->vfdiv_vv(tmp1, src0, src1);            
+
+    h->vfcvt_x_f_v(tmp2, tmp1);             
+    h->vfcvt_f_x_v(tmp2, tmp2);               
+    h->vmflt_vv(mask_vreg(), tmp1, tmp2);  
+    h->vfsub_vf(tmp2, tmp2, fone, VM::masked); 
+
+    h->vfmul_vv(tmp1, tmp2, src1);          
+    h->vfsub_vv(dst, src0, tmp1);             
+
+    h->vmfeq_vf(mask_vreg(), dst, fzero);     
+    h->vfmul_vf(dst, dst, fzero, VM::masked); 
+}
+void jit_floor_mod_emitter::register_table_entries() {
+    push_arg_entry_of("one", CONST_1_F);
+}
+std::set<std::vector<element::Type>> jit_floor_mod_emitter::get_supported_precisions(
+    const std::shared_ptr<ov::Node>& node) {
+    return {{element::f32, element::f32}};  
+}
+
 /// GREATER EQUAL ///
 jit_greater_equal_emitter::jit_greater_equal_emitter(jit_generator* host,
                                                      cpu_isa_t host_isa,
@@ -549,63 +618,6 @@ std::set<std::vector<element::Type>> jit_greater_equal_emitter::get_supported_pr
     const std::shared_ptr<ov::Node>& node) {
     return {{element::f32, element::f32}};
 }
-/// FLOOR MOD ///
-jit_floor_mod_emitter::jit_floor_mod_emitter(jit_generator* host, cpu_isa_t host_isa, const element::Type exec_prc)
-    : jit_emitter(host, host_isa, exec_prc) {
-    prepare_table();
-}
-
-jit_floor_mod_emitter::jit_floor_mod_emitter(jit_generator* host, cpu_isa_t host_isa, const std::shared_ptr<ov::Node>& node)
-    : jit_emitter(host, host_isa, get_arithmetic_binary_exec_precision(node)) {
-    prepare_table();
-}
-
-size_t jit_floor_mod_emitter::get_inputs_num() const {
-    return 2;
-}
-
-size_t jit_floor_mod_emitter::aux_vecs_count() const {
-    return 2;  
-}
-
-size_t jit_floor_mod_emitter::aux_fp_gprs_count() const {
-    return 1;  
-}
-
-void jit_floor_mod_emitter::emit_impl(const std::vector<size_t>& in_vec_idxs,
-                                     const std::vector<size_t>& out_vec_idxs) const {
-    if (host_isa_ == ov::intel_cpu::riscv64::cpu_isa_t::gv) {
-        emit_isa<ov::intel_cpu::riscv64::cpu_isa_t::gv>(in_vec_idxs, out_vec_idxs);
-    } else {
-        OPENVINO_THROW("Can't create jit eltwise kernel for FLOOR_MOD");
-    }
-}
-
-
-template <cpu_isa_t isa>
-void jit_floor_mod_emitter::emit_isa(const std::vector<size_t>& in_vec_idxs,
-                                    const std::vector<size_t>& out_vec_idxs) const {
-    const VReg src0 = VReg(in_vec_idxs[0]);
-    const VReg src1 = VReg(in_vec_idxs[1]);
-    const VReg dst = VReg(out_vec_idxs[0]);
-    const VReg tmp1 = VReg(aux_vec_idxs[0]);
-    const VReg tmp2 = VReg(aux_vec_idxs[1]);
-
-    h->vfdiv_vv(tmp1, src0, src1);          
-    h->vfcvt_x_f_v(tmp2, tmp1);           
-    h->vfcvt_f_x_v(tmp2, tmp2);             
-    h->vfmul_vv(tmp1, tmp2, src1);         
-    h->vfsub_vv(dst, src0, tmp1);         
-}
-
-void jit_floor_mod_emitter::register_table_entries() {
-}
-
-std::set<std::vector<element::Type>> jit_floor_mod_emitter::get_supported_precisions(
-    const std::shared_ptr<ov::Node>& node) {
-    return {{element::f32, element::f32}};  
-}
-
 // LESS ///
 jit_less_emitter::jit_less_emitter(jit_generator* host, cpu_isa_t host_isa, const element::Type exec_prc)
     : jit_emitter(host, host_isa, exec_prc) {
@@ -637,14 +649,14 @@ void jit_less_emitter::emit_impl(const std::vector<size_t>& in_vec_idxs,
 template <cpu_isa_t isa>
 void jit_less_emitter::emit_isa(const std::vector<size_t>& in_vec_idxs,
                                const std::vector<size_t>& out_vec_idxs) const {
+    OPENVINO_ASSERT(exec_prc_ == element::f32, "JIT Less emitter supports only f32 precision");
+    
     VReg src0 = VReg(in_vec_idxs[0]);
     VReg src1 = VReg(in_vec_idxs[1]); 
     VReg dst = VReg(out_vec_idxs[0]);
     FReg one = FReg(aux_fp_gpr_idxs[0]);
-    FReg zero = FReg(aux_fp_gpr_idxs[1]);
 
-    load_table_val("zero", zero);
-    h->vfmv_v_f(dst, zero);
+    h->vmv_v_x(dst, x0);
 
     load_table_val("one", one);
 
@@ -653,6 +665,9 @@ void jit_less_emitter::emit_isa(const std::vector<size_t>& in_vec_idxs,
     h->vfadd_vf(dst, dst, one, VM::masked);
 }
 
+void jit_less_emitter::register_table_entries() {
+    push_arg_entry_of("one", CONST_1_F);
+}
 std::set<std::vector<element::Type>> jit_less_emitter::get_supported_precisions(
     const std::shared_ptr<ov::Node>& node) {
     return {{element::f32, element::f32}};
@@ -672,13 +687,11 @@ jit_logical_or_emitter::jit_logical_or_emitter(jit_generator* host, cpu_isa_t ho
 size_t jit_logical_or_emitter::get_inputs_num() const {
     return 2;
 }
-
-size_t jit_logical_or_emitter::aux_gprs_count() const {
-    return 2;
-}
-
 size_t jit_logical_or_emitter::aux_vecs_count() const {
-    return 1;
+    return 1;  
+}
+size_t jit_logical_or_emitter::aux_fp_gprs_count() const {
+    return 2;
 }
 
 void jit_logical_or_emitter::emit_impl(const std::vector<size_t>& in_vec_idxs,
@@ -693,40 +706,31 @@ void jit_logical_or_emitter::emit_impl(const std::vector<size_t>& in_vec_idxs,
 template <cpu_isa_t isa>
 void jit_logical_or_emitter::emit_isa(const std::vector<size_t>& in_vec_idxs,
                                      const std::vector<size_t>& out_vec_idxs) const {
-    VReg src0 = VReg(in_vec_idxs[0]);
-    VReg src1 = VReg(in_vec_idxs[1]);
-    VReg dst = VReg(out_vec_idxs[0]);
-    VReg mask0 = VReg(aux_vec_idxs[0]);
-    VReg mask1 = VReg(aux_vec_idxs[1]);
-    FReg zero = FReg(aux_fp_gpr_idxs[0]);
-    FReg one = FReg(aux_fp_gpr_idxs[1]);
+    OPENVINO_ASSERT(exec_prc_ == element::f32, "JIT Logical OR emitter supports only f32 precision");
+    
 
-    switch (exec_prc_) {
-    case ov::element::f32: {
-        h->fmv_w_x(zero, Reg(0));  
-        
-        load_table_val("one", one);
+   
+    const VReg src0 = VReg(in_vec_idxs[0]);
+    const VReg src1 = VReg(in_vec_idxs[1]);
+    const VReg dst = VReg(out_vec_idxs[0]);
+    const VReg tmp = VReg(aux_vec_idxs[0]);
+    FReg fzero = FReg(aux_fp_gpr_idxs[0]);
+    FReg fone = FReg(aux_fp_gpr_idxs[1]);
 
-        h->vfmv_v_f(dst, zero);
-        
-        h->vmfeq_vf(mask0, src0, zero);
-        h->vmfeq_vf(mask1, src1, zero);
-        
-        h->vmnot_m(mask0, mask0);
-        h->vmnot_m(mask1, mask1);
-        
-        h->vmor_mm(mask0, mask0, mask1);
-        
-        
-        h->vfmv_v_f(dst, zero); 
-        h->vfmerge_vfm(dst, mask0, one); 
+    h->fmv_w_x(fzero, x0);
+    load_table_val("one", fone);
 
-        break;
-    }
-    default:
-        OV_CPU_JIT_EMITTER_THROW("Unsupported precision");
-    }
+    h->vmv_v_x(dst, x0);
+
+    h->vmfne_vf(mask_vreg(), src0, fzero);  
+    h->vfadd_vf(dst, dst, fone, VM::masked); 
+
+    h->vmfne_vf(mask_vreg(), src1, fzero);  
+    h->vmseq_vx(tmp, dst, x0);              
+    h->vand_vv(mask_vreg(), mask_vreg(), tmp); 
+    h->vfadd_vf(dst, dst, fone, VM::masked); 
 }
+
 void jit_logical_or_emitter::register_table_entries() {
     push_arg_entry_of("one", CONST_1_F);
 }
@@ -911,8 +915,8 @@ void jit_logical_xor_emitter::emit_isa(const std::vector<size_t>& in_vec_idxs,
     VReg aux0 = VReg(aux_vec_idxs[0]);
     VReg aux1 = VReg(aux_vec_idxs[1]);
     VReg dst = VReg(out_vec_idxs[0]);
-    FReg fzero = FReg(aux_fp_gpr_idxs[0]);
-    FReg fone = FReg(aux_fp_gpr_idxs[1]);
+    FReg fzero = FReg(aux_fp_gprs_count());
+    FReg fone = FReg(aux_fp_gprs_count());
     load_table_val("one", fone);
     h->fmv_w_x(fzero, zero);
     h->vmv_v_x(aux0, zero);
@@ -1157,7 +1161,7 @@ void jit_prelu_emitter::emit_isa(const std::vector<size_t>& in_vec_idxs,
     VReg src0 = VReg(in_vec_idxs[0]);
     VReg src1 = VReg(in_vec_idxs[1]);
     VReg dst = VReg(out_vec_idxs[0]);
-    FReg fzero = FReg(aux_fp_gpr_idxs[0]);
+    FReg fzero = FReg(aux_fp_gprs_count());
 
     if (src0.getIdx() != dst.getIdx()) {
         h->vmv_v_v(dst, src0);
@@ -1465,33 +1469,33 @@ void jit_sigmoid_emitter::emit_isa(const std::vector<size_t>& in_vec_idxs,
     VReg sign_mask = VReg(aux_vec_idxs[aux_vecs_count() - 1]);
     VReg aux = VReg(aux_vec_idxs[aux_vecs_count() - 2]);
 
-    // To avoid exp(x) overflow happened at x > logf(FLT_MAX), negate positive,
-    // compute exp(x), where x <= 0 to get 0 <= exp(x) <= 1 and restore value
-    // sign at the end. This is possible due to logistic is symmetric function.
-
-    // we store the original sign and make x negative
-    FReg fzero = FReg(aux_fp_gpr_idxs[0]);
+    // Store original sign and make x negative
+    FReg fzero = FReg(aux_fp_gprs_count());
     h->vmfgt_vf(mask_vreg(), src, fzero);
     h->vfneg_vv(src, src, VM::masked);
     h->vmv1r_v(sign_mask, mask_vreg());  // save mask since exp uses mask too
 
     const auto exp_src_idxs = std::vector<size_t>{static_cast<size_t>(src.getIdx())};
     const auto exp_dst_idxs = std::vector<size_t>{static_cast<size_t>(dst.getIdx())};
-    const auto exp_aux_vec_idxs =
+    const auto exp_aux_vec_idxs = 
         std::vector<size_t>{aux_vec_idxs.cbegin(), aux_vec_idxs.cbegin() + jit_exp_emitter_->aux_vecs_count()};
-    jit_exp_emitter_->emit_code(exp_src_idxs, exp_dst_idxs, exp_aux_vec_idxs, aux_gpr_idxs, aux_fp_gpr_idxs);
+    const auto exp_aux_fp_gpr_idxs = 
+        std::vector<size_t>{0, aux_fp_gprs_count()};  // Create vector for fp registers
 
-    FReg one = FReg(aux_fp_gpr_idxs[0]);
+    // Call emit_code with proper vector arguments
+    jit_exp_emitter_->emit_code(exp_src_idxs, 
+                               exp_dst_idxs, 
+                               exp_aux_vec_idxs, 
+                               aux_gpr_idxs,
+                               exp_aux_fp_gpr_idxs);
+
+    FReg one = FReg(aux_fp_gprs_count());
     load_table_val("one", one);
-    // aux = copy exp(x)
     h->vmv_v_v(aux, dst);
-    // aux = (exp(x) + 1)
     h->vfadd_vf(aux, aux, one);
-    // dst = exp(x) / (exp(x) + 1) = dst / aux
     h->vfdiv_vv(dst, dst, aux);
 
-    // Now we have to apply the "symmetry" based on original sign
-    // aux = dst - 1 = 1 - ( 1 / (exp(x) + 1))
+    // Apply symmetry based on original sign
     h->vfrsub_vf(aux, dst, one);
     h->vmv1r_v(mask_vreg(), sign_mask);  // pop mask
     h->vmerge_vvm(dst, dst, aux);

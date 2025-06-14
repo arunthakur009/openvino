@@ -889,7 +889,7 @@ public:
                     Algorithm::EltwiseFloor,
                     Algorithm::EltwiseFloorMod,
                     Algorithm::EltwiseGreaterEqual,
-                    Algorithm::eltwiseLess,
+                    Algorithm::EltwiseLess,
                     Algorithm::EltwiseLogicalAnd,
                     Algorithm::EltwiseLogicalOr,
                     Algorithm::EltwiseLogicalXor,
