@@ -915,8 +915,8 @@ void jit_logical_xor_emitter::emit_isa(const std::vector<size_t>& in_vec_idxs,
     VReg aux0 = VReg(aux_vec_idxs[0]);
     VReg aux1 = VReg(aux_vec_idxs[1]);
     VReg dst = VReg(out_vec_idxs[0]);
-    FReg fzero = FReg(aux_fp_gprs_count());
-    FReg fone = FReg(aux_fp_gprs_count());
+    FReg fzero = FReg(aux_fp_gpr_idxs[0]);
+    FReg fone = FReg(aux_fp_gpr_idxs[1]);
     load_table_val("one", fone);
     h->fmv_w_x(fzero, zero);
     h->vmv_v_x(aux0, zero);
@@ -1161,7 +1161,7 @@ void jit_prelu_emitter::emit_isa(const std::vector<size_t>& in_vec_idxs,
     VReg src0 = VReg(in_vec_idxs[0]);
     VReg src1 = VReg(in_vec_idxs[1]);
     VReg dst = VReg(out_vec_idxs[0]);
-    FReg fzero = FReg(aux_fp_gprs_count());
+    FReg fzero = FReg(aux_fp_gpr_idxs[0]);
 
     if (src0.getIdx() != dst.getIdx()) {
         h->vmv_v_v(dst, src0);
@@ -1469,33 +1469,34 @@ void jit_sigmoid_emitter::emit_isa(const std::vector<size_t>& in_vec_idxs,
     VReg sign_mask = VReg(aux_vec_idxs[aux_vecs_count() - 1]);
     VReg aux = VReg(aux_vec_idxs[aux_vecs_count() - 2]);
 
-    // Store original sign and make x negative
-    FReg fzero = FReg(aux_fp_gprs_count());
+    // To avoid exp(x) overflow happened at x > logf(FLT_MAX), negate positive,
+    // compute exp(x), where x <= 0 to get 0 <= exp(x) <= 1 and restore value
+    // sign at the end. This is possible due to logistic is symmetric function.
+
+    // we store the original sign and make x negative
+    FReg fzero = FReg(aux_fp_gpr_idxs[0]);
     h->vmfgt_vf(mask_vreg(), src, fzero);
     h->vfneg_vv(src, src, VM::masked);
     h->vmv1r_v(sign_mask, mask_vreg());  // save mask since exp uses mask too
 
     const auto exp_src_idxs = std::vector<size_t>{static_cast<size_t>(src.getIdx())};
     const auto exp_dst_idxs = std::vector<size_t>{static_cast<size_t>(dst.getIdx())};
-    const auto exp_aux_vec_idxs = 
+    const auto exp_aux_vec_idxs =
         std::vector<size_t>{aux_vec_idxs.cbegin(), aux_vec_idxs.cbegin() + jit_exp_emitter_->aux_vecs_count()};
-    const auto exp_aux_fp_gpr_idxs = 
-        std::vector<size_t>{0, aux_fp_gprs_count()};  // Create vector for fp registers
+    jit_exp_emitter_->emit_code(exp_src_idxs, exp_dst_idxs, exp_aux_vec_idxs, aux_gpr_idxs, aux_fp_gpr_idxs);
 
-    // Call emit_code with proper vector arguments
-    jit_exp_emitter_->emit_code(exp_src_idxs, 
-                               exp_dst_idxs, 
-                               exp_aux_vec_idxs, 
-                               aux_gpr_idxs,
-                               exp_aux_fp_gpr_idxs);
-
-    FReg one = FReg(aux_fp_gprs_count());
+    FReg one = FReg(aux_fp_gpr_idxs[0]);
     load_table_val("one", one);
+    // aux = copy exp(x)
     h->vmv_v_v(aux, dst);
+    // aux = (exp(x) + 1)
     h->vfadd_vf(aux, aux, one);
+    // dst = exp(x) / (exp(x) + 1) = dst / aux
     h->vfdiv_vv(dst, dst, aux);
 
-    // Apply symmetry based on original sign
+   
+    // Now we have to apply the "symmetry" based on original sign
+    // aux = dst - 1 = 1 - ( 1 / (exp(x) + 1))
     h->vfrsub_vf(aux, dst, one);
     h->vmv1r_v(mask_vreg(), sign_mask);  // pop mask
     h->vmerge_vvm(dst, dst, aux);
